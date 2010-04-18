@@ -140,6 +140,8 @@ read_byte(void)
   uint8_t retval = 0;
 
   for (uint8_t i = 0; i < 8; i++) {
+    retval <<= 1;
+
     PORTD &= ~16;
 
     while (TimerCounter && is_low())
@@ -154,7 +156,6 @@ read_byte(void)
       while (TimerCounter && is_high())
         ;
     }
-    retval <<= 1;
   }
   PORTD &= ~16;
 
@@ -224,7 +225,7 @@ int main(void)
   CDC_Device_CreateStream(&VirtualSerial_CDC_Interface, &USBSerialStream);
 
   PORTD = 0;
-	
+
   for (;;) {
     static uint8_t previous[4];
     uint8_t buf[4];

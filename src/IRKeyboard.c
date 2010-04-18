@@ -37,6 +37,26 @@
 
 #include "IRKeyboard.h"
 
+uint8_t translationTable[256] = {
+  /*          0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F */
+  /* 0 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 
+  /* 1 */  0x00, 0x00, 0x00, 0x00, 0x00, 0xE1, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x0F, 
+  /* 2 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+  /* 3 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 
+  /* 4 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 
+  /* 5 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x0C, 
+  /* 6 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x00, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 
+  /* 7 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x15, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE5, 0x00, 0x22, 
+  /* 8 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 
+  /* 9 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0x00, 0x0B, 
+  /* A */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x16, 
+  /* B */  0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x00, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 
+  /* C */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+  /* D */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 
+  /* E */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x08,
+  /* F */  0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00
+};
+
 /** Buffer to hold the previously generated Keyboard HID report, for comparison purposes inside the HID class driver. */
 uint8_t PrevKeyboardHIDReportBuffer[sizeof(USB_KeyboardReport_Data_t)];
 
@@ -170,6 +190,8 @@ read_byte(void)
   uint8_t retval = 0;
 
   for (uint8_t i = 0; i < 8; i++) {
+    retval <<= 1;
+
     PORTD &= ~16;
 
     while (TimerCounter && is_low())
@@ -184,22 +206,25 @@ read_byte(void)
       while (TimerCounter && is_high())
         ;
     }
-    retval <<= 1;
   }
   PORTD &= ~16;
 
   return retval;
 }
 
-enum { none, new, repeat }
-read_frame(uint8_t bytes[4])
+uint8_t
+read_ir_key(void)
 {
+  static uint8_t previous;
+  uint8_t current = 0;
+
   PORTD = 0;
   
   // wait for start frame, low > 7ms, high > 3ms
 
-   if (is_high())
-     return none;
+  if (is_high()) {
+    goto out;
+  }
 
   PORTD |= 2;
   
@@ -208,8 +233,9 @@ read_frame(uint8_t bytes[4])
   while (is_low())
     ;
 
-  if (TimerCounter)
-    return none;
+  if (TimerCounter) {
+    goto out;
+  }
 
   PORTD |= 4;
   
@@ -218,57 +244,37 @@ read_frame(uint8_t bytes[4])
   while (is_high())
     ;
 
-  if (TimerCounter)
-    return none;
-
-  PORTD |= 8;
+  if (TimerCounter) {
+    goto out;
+  }
 
   TimerCounter = 100;
 
-  bytes[0] = read_byte();
-  bytes[1] = read_byte();
-  bytes[2] = read_byte();
-  bytes[3] = read_byte();
+  if (read_byte() != 0xff
+      || read_byte() != 0x00) {
+    goto out;
+  }
+
+  {
+    uint8_t data = read_byte();
+    uint8_t dataNegated = read_byte();
+
+    if ((dataNegated ^ data) != 0xff) {
+      goto out;
+    }
+
+    current = data;
+  }
 
   if (TimerCounter) {
-    return new;
+    previous = current;         /* frame was read, use current database */
   } else {
-    return repeat;
+    current = previous;         /* timed out, repeat previous key code */
   }
-}
 
-uint8_t send_queue[50];
-uint8_t* send_queue_ptr;
-
-void
-process_key(uint8_t data[4])
-{
-  send_queue_ptr = send_queue;
-  static char buf[15];
-  snprintf(buf, 15, "  %02x %02x %02x %02x ", data[0], data[1], data[2], data[3]);
-  for (int i = 0; buf[i]; i++) {
-    switch (buf[i]) {
-    case ' ':
-      *send_queue_ptr++ = 0x2C;
-      break;
-    case '0':
-      *send_queue_ptr++ = 0x27;
-      break;
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-    case 'f':
-      *send_queue_ptr++ = buf[i] - 'a' + 0x04;
-      break;
-    default:
-      *send_queue_ptr++ = buf[i] - '1' + 0x1E;
-      break;
-    }
-  }
-  *send_queue_ptr = 0;
-  send_queue_ptr = send_queue;
+ out:
+  TimerCounter = 0;
+  return current;
 }
 
 /** HID class driver callback function for the creation of HID reports to the host.
@@ -286,22 +292,15 @@ bool CALLBACK_HID_Device_CreateHIDReport(USB_ClassInfo_HID_Device_t* const HIDIn
 {
   USB_KeyboardReport_Data_t* KeyboardReport = (USB_KeyboardReport_Data_t*)ReportData;
 
-  *ReportSize = 0;
-  KeyboardReport->Modifier = 0;
+  KeyboardReport->Modifier = HID_KEYBOARD_MODIFER_LEFTSHIFT | HID_KEYBOARD_MODIFER_LEFTALT | HID_KEYBOARD_MODIFER_LEFTGUI;
   KeyboardReport->Reserved = 0;
   memset(KeyboardReport->KeyCode, 0, 6);
-
-  if (*send_queue_ptr) {
-    PORTD |= 32;
-    KeyboardReport->KeyCode[0] = *send_queue_ptr++;
-    *ReportSize = sizeof(USB_KeyboardReport_Data_t);
-    PORTD &= ~32;
-  } else if (send_queue_ptr != send_queue) {
-    send_queue_ptr = send_queue;
-    *send_queue_ptr = 0;
-    KeyboardReport->KeyCode[0] = 0;
-    *ReportSize = sizeof(USB_KeyboardReport_Data_t);
+  KeyboardReport->KeyCode[0] = translationTable[read_ir_key()];
+  if (KeyboardReport->KeyCode[0]) {
+      PORTD |= 32;
+      PORTD &= ~32;
   }
+  *ReportSize = sizeof(USB_KeyboardReport_Data_t);
 
   return false;
 }
@@ -316,18 +315,6 @@ int main(void)
   PORTD = 0;
 	
   for (;;) {
-
-    static uint8_t previous[4];
-    uint8_t buf[4];
-    switch (read_frame(buf)) {
-    case none:
-      break;
-    case repeat:
-      memcpy(buf, previous, 4);
-    case new:
-      process_key(buf);
-      memcpy(previous, buf, 4);
-    }
 
     HID_Device_USBTask(&Keyboard_HID_Interface);
     USB_USBTask();
